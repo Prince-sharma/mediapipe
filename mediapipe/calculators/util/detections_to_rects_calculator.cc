@@ -17,8 +17,10 @@
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/calculator_options.pb.h"
 #include "mediapipe/framework/formats/detection.pb.h"
+
 #include "mediapipe/framework/formats/location_data.pb.h"
 #include "mediapipe/framework/formats/rect.pb.h"
+
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/framework/port/status.h"
 
@@ -142,10 +144,11 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
             cc->Inputs().HasTag(kDetectionsTag))
       << "Exactly one of DETECTION or DETECTIONS input stream should be "
          "provided.";
-  RET_CHECK_EQ((cc->Outputs().HasTag(kNormRectTag) ? 1 : 0) +
+  RET_CHECK_GE((cc->Outputs().HasTag(kNormRectTag) ? 1 : 0) +
                    (cc->Outputs().HasTag(kRectTag) ? 1 : 0) +
                    (cc->Outputs().HasTag(kNormRectsTag) ? 1 : 0) +
-                   (cc->Outputs().HasTag(kRectsTag) ? 1 : 0),
+                   (cc->Outputs().HasTag(kRectsTag) ? 1 : 0) +
+                   (cc->Outputs().HasTag("FACE_REC_TO_FLOAT") ? 1 : 0),
                1)
       << "Exactly one of NORM_RECT, RECT, NORM_RECTS or RECTS output stream "
          "should be provided.";
@@ -171,6 +174,9 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
   }
   if (cc->Outputs().HasTag(kNormRectsTag)) {
     cc->Outputs().Tag(kNormRectsTag).Set<std::vector<NormalizedRect>>();
+  }
+  if (cc->Outputs().HasTag("FACE_REC_TO_FLOAT")) {
+    cc->Outputs().Tag("FACE_REC_TO_FLOAT").Set<std::vector<float>>();
   }
 
   return ::mediapipe::OkStatus();
@@ -291,6 +297,25 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
         .Tag(kNormRectsTag)
         .Add(output_rects.release(), cc->InputTimestamp());
   }
+  if (cc->Outputs().HasTag("FACE_REC_TO_FLOAT")) {
+    auto output_vecs =
+        absl::make_unique<std::vector<float>>(5);
+      
+    const auto& location_data = detections[0].location_data();
+    const float x0 = location_data.relative_keypoints(start_keypoint_index_).x();
+    const float y0 = location_data.relative_keypoints(start_keypoint_index_).y();
+    const float x1 = location_data.relative_keypoints(end_keypoint_index_).x();
+    const float y1 = location_data.relative_keypoints(end_keypoint_index_).y();
+    output_vecs->at(0)=x0;
+    output_vecs->at(1)=y0;
+    output_vecs->at(2)=x1;
+    output_vecs->at(3)=y1;
+    float rotation = target_angle_ - std::atan2(-(y1 - y0), x1 - x0);
+    output_vecs->at(4)=rotation; 
+    cc->Outputs().Tag("FACE_REC_TO_FLOAT").Add(output_vecs.release(),
+                                         cc->InputTimestamp());
+  }
+    
 
   return ::mediapipe::OkStatus();
 }

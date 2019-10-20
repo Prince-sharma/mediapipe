@@ -17,6 +17,8 @@ package com.google.mediapipe.apps.edgedetectiongpu;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
+
+import android.util.Log;
 import android.util.Size;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -29,14 +31,35 @@ import com.google.mediapipe.components.FrameProcessor;
 import com.google.mediapipe.components.PermissionHelper;
 import com.google.mediapipe.framework.AndroidAssetUtil;
 import com.google.mediapipe.glutil.EglManager;
+import android.graphics.Bitmap;
+import android.util.Base64;
+import android.content.Intent;
+import android.provider.MediaStore;
+import java.io.ByteArrayOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.InputStreamReader;
+import java.io.IOException;
+import java.io.BufferedReader;
+
 
 /** Bare-bones main activity. */
 public class MainActivity extends AppCompatActivity {
 
+  // Co-ordinates of hand and face
+  private float[]  hand_coOrdinates;
+
+
   private static final String BINARY_GRAPH_NAME = "edgedetectiongpu.binarypb";
   private static final String INPUT_VIDEO_STREAM_NAME = "input_video";
   private static final String OUTPUT_VIDEO_STREAM_NAME = "output_video";
-  private static final CameraHelper.CameraFacing CAMERA_FACING = CameraHelper.CameraFacing.BACK;
+  private static final CameraHelper.CameraFacing CAMERA_FACING = CameraHelper.CameraFacing.FRONT;
+  static final int REQUEST_IMAGE_CAPTURE = 1;
+  public static String strBitMap;
+
+
+
+  
 
   // Flips the camera-preview frames vertically before sending them into FrameProcessor to be
   // processed in a MediaPipe graph, and flips the processed frames back when they are displayed.
@@ -89,6 +112,23 @@ public class MainActivity extends AppCompatActivity {
             OUTPUT_VIDEO_STREAM_NAME);
     processor.getVideoSurfaceOutput().setFlipY(FLIP_FRAMES_VERTICALLY);
 
+     float [] face_Rectangle= processor.get_face_rect();
+    for(float x: face_Rectangle) {
+      Log.e("face rect values", Float.toString(x));
+    }
+     float [] hand_Rectangle_landmark = processor.get_hand_rect_landmark();
+    for(float x: hand_Rectangle_landmark) {
+      Log.e("hand rect values", Float.toString(x));
+    }
+
+    if(hand_Rectangle_landmark[0] == 0 && face_Rectangle[0] == 0){
+
+      dispatchTakePictureIntent();
+
+    }
+
+
+
     PermissionHelper.checkAndRequestCameraPermissions(this);
   }
 
@@ -101,7 +141,86 @@ public class MainActivity extends AppCompatActivity {
     if (PermissionHelper.cameraPermissionsGranted(this)) {
       startCamera();
     }
+
+    private void dispatchTakePictureIntent() {
+    Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+    if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
+      startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+    }
   }
+
+  @Override
+  public void onActivityResult(int requestCode, int resultCode, Intent data) {
+    if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
+      Bundle extras = data.getExtras();
+      Bitmap imageBitmap = (Bitmap) extras.get("data");
+      String strBitMap = BitMapToString(imageBitmap);
+      Log.v("image base64", strBitMap );
+     // imageView.setImageBitmap(imageBitmap);
+    }
+  }
+
+  public String BitMapToString(Bitmap bitmap) {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+    byte[] b = baos.toByteArray();
+    String strBitMap = Base64.encodeToString(b, Base64.DEFAULT);
+    return strBitMap;
+  }
+
+  }
+
+  public static void main(String[] args) throws IOException {
+
+    //GetAndPost.MyGETRequest();
+
+    MyPOSTRequest();
+  ;
+
+}
+
+public static void MyPOSTRequest() throws IOException {
+
+    URL urlForPostRequest = new URL("https://er50bch4c1.execute-api.ap-south-1.amazonaws.com/beta/identify");
+
+    String readLine = null;
+
+    HttpURLConnection conection = (HttpURLConnection) urlForPostRequest.openConnection();
+
+    conection.setRequestMethod("POST");
+
+    conection.setRequestProperty("image_base_64", strBitMap); // set userId its a sample here
+
+    int responseCode = conection.getResponseCode();
+
+    if (responseCode == HttpURLConnection.HTTP_OK) {
+
+        BufferedReader in = new BufferedReader(
+
+            new InputStreamReader(conection.getInputStream()));
+
+        StringBuffer response = new StringBuffer();
+
+        while ((readLine = in .readLine()) != null) {
+
+            response.append(readLine);
+
+        } in .close();
+
+        // print result
+
+        System.out.println("JSON String Result " + response.toString());
+
+        //GetAndPost.POSTRequest(response.toString());
+
+    } else {
+
+        System.out.println("GET NOT WORKED");
+
+    }
+
+}
+
 
   @Override
   protected void onPause() {
@@ -132,7 +251,8 @@ public class MainActivity extends AppCompatActivity {
     previewDisplayView.setVisibility(View.GONE);
     ViewGroup viewGroup = findViewById(R.id.preview_display_layout);
     viewGroup.addView(previewDisplayView);
-
+    
+      
     previewDisplayView
         .getHolder()
         .addCallback(
@@ -164,3 +284,5 @@ public class MainActivity extends AppCompatActivity {
             });
   }
 }
+
+

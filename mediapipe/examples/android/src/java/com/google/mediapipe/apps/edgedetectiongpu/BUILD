@@ -47,6 +47,11 @@ android_library(
     srcs = glob(["*.java"]),
     assets = [
         ":binary_graph",
+        "//mediapipe/models:face_detection_front.tflite",
+        "//mediapipe/models:face_detection_front_labelmap.txt",
+        "//mediapipe/models:hand_landmark.tflite",
+        "//mediapipe/models:palm_detection.tflite",
+        "//mediapipe/models:palm_detection_labelmap.txt",
     ],
     assets_dir = "",
     manifest = "AndroidManifest.xml",

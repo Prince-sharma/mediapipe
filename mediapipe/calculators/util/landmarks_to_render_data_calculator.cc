@@ -149,6 +149,10 @@ REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
   if (cc->Inputs().HasTag(kNormLandmarksTag)) {
     cc->Inputs().Tag(kNormLandmarksTag).Set<std::vector<NormalizedLandmark>>();
   }
+  if (cc->Outputs().HasTag("HAND_LANDMARKS_FLOAT")) {
+    cc->Outputs().Tag("HAND_LANDMARKS_FLOAT").Set<std::vector<float>>();
+  }
+    
   cc->Outputs().Tag(kRenderDataTag).Set<RenderData>();
   return ::mediapipe::OkStatus();
 }
@@ -227,6 +231,25 @@ REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
     } else {
       AddConnections(landmarks, /*normalized=*/true, render_data.get());
     }
+  }
+  if (cc->Outputs().HasTag("HAND_LANDMARKS_FLOAT")) {
+    const auto& landmarks = cc->Inputs()
+                                .Tag(kNormLandmarksTag)
+                                .Get<std::vector<NormalizedLandmark>>();
+      
+    RET_CHECK_EQ(options_.landmark_connections_size() % 2, 0)
+        << "Number of entries in landmark connections must be a multiple of 2";
+      
+    auto output_vecs =
+        absl::make_unique<std::vector<float>>();
+      
+    for (const auto& landmark : landmarks) {
+        output_vecs->push_back(landmark.x());
+        output_vecs->push_back(landmark.y());
+    }
+
+    cc->Outputs().Tag("HAND_LANDMARKS_FLOAT").Add(output_vecs.release(),
+                                         cc->InputTimestamp());
   }
 
   cc->Outputs()

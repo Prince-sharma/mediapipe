@@ -1,3 +1,13 @@
+docker start mediapipe4
+
+bash run_build.sh
+
+
+
+
+
+
+
 ![MediaPipe](mediapipe/docs/images/mediapipe_small.png?raw=true "MediaPipe logo")
 =======================================================================
 
@@ -49,3 +59,4 @@ MediaPipe is currently in alpha for v0.6. We are still making breaking API chang
 We welcome contributions. Please follow these [guidelines](./CONTRIBUTING.md).
 
 We use GitHub issues for tracking requests and bugs. Please post questions to the MediaPipe Stack Overflow with a 'mediapipe' tag.
+# Mediapipe-Face-Palm

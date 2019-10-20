@@ -16,21 +16,46 @@ licenses(["notice"])  # Apache 2.0
 
 package(default_visibility = ["//visibility:public"])
 
-cc_library(
-    name = "mobile_calculators",
-    deps = [
-        "//mediapipe/calculators/image:luminance_calculator",
-        "//mediapipe/calculators/image:sobel_edges_calculator",
-    ],
-)
-
 load(
     "//mediapipe/framework/tool:mediapipe_graph.bzl",
     "mediapipe_binary_graph",
+)
+
+
+cc_library(
+    name = "mobile_calculators",
+    deps = [
+        "//mediapipe/calculators/core:flow_limiter_calculator",
+        "//mediapipe/calculators/image:image_transformation_calculator",
+        "//mediapipe/calculators/tflite:tflite_converter_calculator",
+        "//mediapipe/calculators/tflite:tflite_inference_calculator",
+        "//mediapipe/calculators/tflite:ssd_anchors_calculator",
+        "//mediapipe/calculators/tflite:tflite_tensors_to_detections_calculator",
+        "//mediapipe/calculators/util:non_max_suppression_calculator",
+        "//mediapipe/calculators/util:detection_label_id_to_text_calculator",
+        "//mediapipe/calculators/util:detection_letterbox_removal_calculator",
+        "//mediapipe/calculators/util:detections_to_render_data_calculator",
+        "//mediapipe/calculators/util:rect_to_render_data_calculator",
+        "//mediapipe/calculators/util:annotation_overlay_calculator",
+        "//mediapipe/calculators/core:gate_calculator",
+        "//mediapipe/calculators/core:merge_calculator",
+        "//mediapipe/calculators/core:previous_loopback_calculator",
+        "//mediapipe/calculators/util:landmarks_to_render_data_calculator",
+        # custom calc
+        "//mediapipe/calculators/util:detections_to_float_calculator",
+        # getting normed face
+        "//mediapipe/calculators/util:detections_to_rects_calculator",
+        "//mediapipe/calculators/image:image_properties_calculator",
+        "//mediapipe/calculators/util:rect_transformation_calculator",
+        
+        "//mediapipe/graphs/hand_tracking/subgraphs:hand_detection_gpu",
+        "//mediapipe/graphs/hand_tracking/subgraphs:hand_landmark_gpu",
+    ],
 )
 
 mediapipe_binary_graph(
     name = "mobile_gpu_binary_graph",
     graph = "edge_detection_mobile_gpu.pbtxt",
     output_name = "mobile_gpu.binarypb",
+    deps = [":mobile_calculators"],
 )

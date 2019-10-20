@@ -630,6 +630,23 @@ cc_library(
 )
 
 cc_library(
+    name = "detections_to_float_calculator",
+    srcs = ["detections_to_float_calculator.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//mediapipe/framework:calculator_framework",
+        "//mediapipe/framework/formats:detection_cc_proto",
+        "//mediapipe/framework/formats:location",
+#        "//mediapipe/framework/formats:location_data_cc_proto",
+#        "//mediapipe/framework/formats:rect_cc_proto",
+        "//mediapipe/framework/port:ret_check",
+        "//mediapipe/framework/port:status",
+    ],
+    alwayslink = 1,
+)
+
+
+cc_library(
     name = "landmark_letterbox_removal_calculator",
     srcs = ["landmark_letterbox_removal_calculator.cc"],
     visibility = ["//visibility:public"],

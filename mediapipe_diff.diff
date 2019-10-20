@@ -1,0 +1,899 @@
+diff --git a/LICENSE b/LICENSE
+index 261eeb9..9792d20 100644
+--- a/LICENSE
++++ b/LICENSE
+@@ -1,4 +1,5 @@
+-                                 Apache License
++Killroy was here
++                                Apache License
+                            Version 2.0, January 2004
+                         http://www.apache.org/licenses/
+ 
+diff --git a/mediapipe/calculators/util/BUILD b/mediapipe/calculators/util/BUILD
+index 7bd06fe..df408a3 100644
+--- a/mediapipe/calculators/util/BUILD
++++ b/mediapipe/calculators/util/BUILD
+@@ -629,6 +629,23 @@ cc_library(
+     alwayslink = 1,
+ )
+ 
++cc_library(
++    name = "detections_to_float_calculator",
++    srcs = ["detections_to_float_calculator.cc"],
++    visibility = ["//visibility:public"],
++    deps = [
++        "//mediapipe/framework:calculator_framework",
++        "//mediapipe/framework/formats:detection_cc_proto",
++        "//mediapipe/framework/formats:location",
++#        "//mediapipe/framework/formats:location_data_cc_proto",
++#        "//mediapipe/framework/formats:rect_cc_proto",
++        "//mediapipe/framework/port:ret_check",
++        "//mediapipe/framework/port:status",
++    ],
++    alwayslink = 1,
++)
++
++
+ cc_library(
+     name = "landmark_letterbox_removal_calculator",
+     srcs = ["landmark_letterbox_removal_calculator.cc"],
+diff --git a/mediapipe/calculators/util/detections_to_rects_calculator.cc b/mediapipe/calculators/util/detections_to_rects_calculator.cc
+index bb5ba6d..a7353dc 100644
+--- a/mediapipe/calculators/util/detections_to_rects_calculator.cc
++++ b/mediapipe/calculators/util/detections_to_rects_calculator.cc
+@@ -17,8 +17,10 @@
+ #include "mediapipe/framework/calculator_framework.h"
+ #include "mediapipe/framework/calculator_options.pb.h"
+ #include "mediapipe/framework/formats/detection.pb.h"
++
+ #include "mediapipe/framework/formats/location_data.pb.h"
+ #include "mediapipe/framework/formats/rect.pb.h"
++
+ #include "mediapipe/framework/port/ret_check.h"
+ #include "mediapipe/framework/port/status.h"
+ 
+@@ -142,10 +144,11 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
+             cc->Inputs().HasTag(kDetectionsTag))
+       << "Exactly one of DETECTION or DETECTIONS input stream should be "
+          "provided.";
+-  RET_CHECK_EQ((cc->Outputs().HasTag(kNormRectTag) ? 1 : 0) +
++  RET_CHECK_GE((cc->Outputs().HasTag(kNormRectTag) ? 1 : 0) +
+                    (cc->Outputs().HasTag(kRectTag) ? 1 : 0) +
+                    (cc->Outputs().HasTag(kNormRectsTag) ? 1 : 0) +
+-                   (cc->Outputs().HasTag(kRectsTag) ? 1 : 0),
++                   (cc->Outputs().HasTag(kRectsTag) ? 1 : 0) +
++                   (cc->Outputs().HasTag("FACE_REC_TO_FLOAT") ? 1 : 0),
+                1)
+       << "Exactly one of NORM_RECT, RECT, NORM_RECTS or RECTS output stream "
+          "should be provided.";
+@@ -172,6 +175,9 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
+   if (cc->Outputs().HasTag(kNormRectsTag)) {
+     cc->Outputs().Tag(kNormRectsTag).Set<std::vector<NormalizedRect>>();
+   }
++  if (cc->Outputs().HasTag("FACE_REC_TO_FLOAT")) {
++    cc->Outputs().Tag("FACE_REC_TO_FLOAT").Set<std::vector<float>>();
++  }
+ 
+   return ::mediapipe::OkStatus();
+ }
+@@ -291,6 +297,25 @@ REGISTER_CALCULATOR(DetectionsToRectsCalculator);
+         .Tag(kNormRectsTag)
+         .Add(output_rects.release(), cc->InputTimestamp());
+   }
++  if (cc->Outputs().HasTag("FACE_REC_TO_FLOAT")) {
++    auto output_vecs =
++        absl::make_unique<std::vector<float>>(5);
++      
++    const auto& location_data = detections[0].location_data();
++    const float x0 = location_data.relative_keypoints(start_keypoint_index_).x();
++    const float y0 = location_data.relative_keypoints(start_keypoint_index_).y();
++    const float x1 = location_data.relative_keypoints(end_keypoint_index_).x();
++    const float y1 = location_data.relative_keypoints(end_keypoint_index_).y();
++    output_vecs->at(0)=x0;
++    output_vecs->at(1)=y0;
++    output_vecs->at(2)=x1;
++    output_vecs->at(3)=y1;
++    float rotation = target_angle_ - std::atan2(-(y1 - y0), x1 - x0);
++    output_vecs->at(4)=rotation; 
++    cc->Outputs().Tag("FACE_REC_TO_FLOAT").Add(output_vecs.release(),
++                                         cc->InputTimestamp());
++  }
++    
+ 
+   return ::mediapipe::OkStatus();
+ }
+diff --git a/mediapipe/calculators/util/landmarks_to_render_data_calculator.cc b/mediapipe/calculators/util/landmarks_to_render_data_calculator.cc
+index 25ffb67..87de93b 100644
+--- a/mediapipe/calculators/util/landmarks_to_render_data_calculator.cc
++++ b/mediapipe/calculators/util/landmarks_to_render_data_calculator.cc
+@@ -149,6 +149,10 @@ REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
+   if (cc->Inputs().HasTag(kNormLandmarksTag)) {
+     cc->Inputs().Tag(kNormLandmarksTag).Set<std::vector<NormalizedLandmark>>();
+   }
++  if (cc->Outputs().HasTag("HAND_LANDMARKS_FLOAT")) {
++    cc->Outputs().Tag("HAND_LANDMARKS_FLOAT").Set<std::vector<float>>();
++  }
++    
+   cc->Outputs().Tag(kRenderDataTag).Set<RenderData>();
+   return ::mediapipe::OkStatus();
+ }
+@@ -228,6 +232,25 @@ REGISTER_CALCULATOR(LandmarksToRenderDataCalculator);
+       AddConnections(landmarks, /*normalized=*/true, render_data.get());
+     }
+   }
++  if (cc->Outputs().HasTag("HAND_LANDMARKS_FLOAT")) {
++    const auto& landmarks = cc->Inputs()
++                                .Tag(kNormLandmarksTag)
++                                .Get<std::vector<NormalizedLandmark>>();
++      
++    RET_CHECK_EQ(options_.landmark_connections_size() % 2, 0)
++        << "Number of entries in landmark connections must be a multiple of 2";
++      
++    auto output_vecs =
++        absl::make_unique<std::vector<float>>();
++      
++    for (const auto& landmark : landmarks) {
++        output_vecs->push_back(landmark.x());
++        output_vecs->push_back(landmark.y());
++    }
++
++    cc->Outputs().Tag("HAND_LANDMARKS_FLOAT").Add(output_vecs.release(),
++                                         cc->InputTimestamp());
++  }
+ 
+   cc->Outputs()
+       .Tag(kRenderDataTag)
+diff --git a/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/BUILD b/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/BUILD
+index 94a6101..4761273 100644
+--- a/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/BUILD
++++ b/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/BUILD
+@@ -47,6 +47,11 @@ android_library(
+     srcs = glob(["*.java"]),
+     assets = [
+         ":binary_graph",
++        "//mediapipe/models:face_detection_front.tflite",
++        "//mediapipe/models:face_detection_front_labelmap.txt",
++        "//mediapipe/models:hand_landmark.tflite",
++        "//mediapipe/models:palm_detection.tflite",
++        "//mediapipe/models:palm_detection_labelmap.txt",
+     ],
+     assets_dir = "",
+     manifest = "AndroidManifest.xml",
+diff --git a/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/MainActivity.java b/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/MainActivity.java
+index 9c45cbd..8b1111a 100644
+--- a/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/MainActivity.java
++++ b/mediapipe/examples/android/src/java/com/google/mediapipe/apps/edgedetectiongpu/MainActivity.java
+@@ -36,7 +36,7 @@ public class MainActivity extends AppCompatActivity {
+   private static final String BINARY_GRAPH_NAME = "edgedetectiongpu.binarypb";
+   private static final String INPUT_VIDEO_STREAM_NAME = "input_video";
+   private static final String OUTPUT_VIDEO_STREAM_NAME = "output_video";
+-  private static final CameraHelper.CameraFacing CAMERA_FACING = CameraHelper.CameraFacing.BACK;
++  private static final CameraHelper.CameraFacing CAMERA_FACING = CameraHelper.CameraFacing.FRONT;
+ 
+   // Flips the camera-preview frames vertically before sending them into FrameProcessor to be
+   // processed in a MediaPipe graph, and flips the processed frames back when they are displayed.
+@@ -132,7 +132,8 @@ public class MainActivity extends AppCompatActivity {
+     previewDisplayView.setVisibility(View.GONE);
+     ViewGroup viewGroup = findViewById(R.id.preview_display_layout);
+     viewGroup.addView(previewDisplayView);
+-
++    
++      
+     previewDisplayView
+         .getHolder()
+         .addCallback(
+diff --git a/mediapipe/graphs/edge_detection/BUILD b/mediapipe/graphs/edge_detection/BUILD
+index 2f47a3d..67dfec7 100644
+--- a/mediapipe/graphs/edge_detection/BUILD
++++ b/mediapipe/graphs/edge_detection/BUILD
+@@ -16,21 +16,46 @@ licenses(["notice"])  # Apache 2.0
+ 
+ package(default_visibility = ["//visibility:public"])
+ 
++load(
++    "//mediapipe/framework/tool:mediapipe_graph.bzl",
++    "mediapipe_binary_graph",
++)
++
++
+ cc_library(
+     name = "mobile_calculators",
+     deps = [
+-        "//mediapipe/calculators/image:luminance_calculator",
+-        "//mediapipe/calculators/image:sobel_edges_calculator",
++        "//mediapipe/calculators/core:flow_limiter_calculator",
++        "//mediapipe/calculators/image:image_transformation_calculator",
++        "//mediapipe/calculators/tflite:tflite_converter_calculator",
++        "//mediapipe/calculators/tflite:tflite_inference_calculator",
++        "//mediapipe/calculators/tflite:ssd_anchors_calculator",
++        "//mediapipe/calculators/tflite:tflite_tensors_to_detections_calculator",
++        "//mediapipe/calculators/util:non_max_suppression_calculator",
++        "//mediapipe/calculators/util:detection_label_id_to_text_calculator",
++        "//mediapipe/calculators/util:detection_letterbox_removal_calculator",
++        "//mediapipe/calculators/util:detections_to_render_data_calculator",
++        "//mediapipe/calculators/util:rect_to_render_data_calculator",
++        "//mediapipe/calculators/util:annotation_overlay_calculator",
++        "//mediapipe/calculators/core:gate_calculator",
++        "//mediapipe/calculators/core:merge_calculator",
++        "//mediapipe/calculators/core:previous_loopback_calculator",
++        "//mediapipe/calculators/util:landmarks_to_render_data_calculator",
++        # custom calc
++        "//mediapipe/calculators/util:detections_to_float_calculator",
++        # getting normed face
++        "//mediapipe/calculators/util:detections_to_rects_calculator",
++        "//mediapipe/calculators/image:image_properties_calculator",
++        "//mediapipe/calculators/util:rect_transformation_calculator",
++        
++        "//mediapipe/graphs/hand_tracking/subgraphs:hand_detection_gpu",
++        "//mediapipe/graphs/hand_tracking/subgraphs:hand_landmark_gpu",
+     ],
+ )
+ 
+-load(
+-    "//mediapipe/framework/tool:mediapipe_graph.bzl",
+-    "mediapipe_binary_graph",
+-)
+-
+ mediapipe_binary_graph(
+     name = "mobile_gpu_binary_graph",
+     graph = "edge_detection_mobile_gpu.pbtxt",
+     output_name = "mobile_gpu.binarypb",
++    deps = [":mobile_calculators"],
+ )
+diff --git a/mediapipe/graphs/edge_detection/edge_detection_mobile_gpu.pbtxt b/mediapipe/graphs/edge_detection/edge_detection_mobile_gpu.pbtxt
+index 9b99deb..0d1448d 100644
+--- a/mediapipe/graphs/edge_detection/edge_detection_mobile_gpu.pbtxt
++++ b/mediapipe/graphs/edge_detection/edge_detection_mobile_gpu.pbtxt
+@@ -6,17 +6,414 @@
+ # Images coming into and out of the graph.
+ input_stream: "input_video"
+ output_stream: "output_video"
++## note vectors are normalised in [0,1]    
++# Output format face float vector 
++# v[] = {x0,y0,x1,y1,D1}, D1 is rotation angle in radians
++output_stream: "face_float_vector"
++# Output format landmark float vector 
++# v[] = {x0,y0,x1,y1......,x21,y21}
++output_stream: "landmark_float_vector"
+ 
+-# Converts RGB images into luminance images, still stored in RGB format.
+-node: {
+-  calculator: "LuminanceCalculator"
+-  input_stream: "input_video"
+-  output_stream: "luma_video"
++# Throttles the images flowing downstream for flow control. It passes through
++# the very first incoming image unaltered, and waits for
++# TfLiteTensorsToDetectionsCalculator downstream in the graph to finish
++# generating the corresponding detections before it passes through another
++# image. All images that come in while waiting are dropped, limiting the number
++# of in-flight images between this calculator and
++# TfLiteTensorsToDetectionsCalculator to 1. This prevents the nodes in between
++# from queuing up incoming images and data excessively, which leads to increased
++# latency and memory usage, unwanted in real-time mobile applications. It also
++# eliminates unnecessarily computation, e.g., a transformed image produced by
++# ImageTransformationCalculator may get dropped downstream if the subsequent
++# TfLiteConverterCalculator or TfLiteInferenceCalculator is still busy
++# processing previous inputs.
++node {
++    calculator: "FlowLimiterCalculator"
++    input_stream: "input_video"
++    input_stream: "FINISHED:hand_rect"
++    input_stream_info: {
++     tag_index: "FINISHED"
++     back_edge: true
++    }
++    output_stream: "throttled_input_video"
+ }
+ 
+-# Applies the Sobel filter to luminance images sotred in RGB format.
++# Transforms the input image on GPU to a 128x128 image. To scale the input
++# image, the scale_mode option is set to FIT to preserve the aspect ratio,
++# resulting in potential letterboxing in the transformed image.
+ node: {
+-  calculator: "SobelEdgesCalculator"
+-  input_stream: "luma_video"
+-  output_stream: "output_video"
++  calculator: "ImageTransformationCalculator"
++  input_stream: "IMAGE_GPU:throttled_input_video"
++  output_stream: "IMAGE_GPU:transformed_input_video"
++  output_stream: "LETTERBOX_PADDING:letterbox_padding"
++  node_options: {
++    [type.googleapis.com/mediapipe.ImageTransformationCalculatorOptions] {
++      output_width: 128
++      output_height: 128
++      scale_mode: FIT
++    }
++  }
++}
++
++# Converts the transformed input image on GPU into an image tensor stored as a
++# TfLiteTensor.
++node {
++  calculator: "TfLiteConverterCalculator"
++  input_stream: "IMAGE_GPU:transformed_input_video"
++  output_stream: "TENSORS_GPU:image_tensor"
++}
++
++# Runs a TensorFlow Lite model on GPU that takes an image tensor and outputs a
++# vector of tensors representing, for instance, detection boxes/keypoints and
++# scores.
++node {
++  calculator: "TfLiteInferenceCalculator"
++  input_stream: "TENSORS_GPU:image_tensor"
++  output_stream: "TENSORS:detection_tensors"
++  node_options: {
++    [type.googleapis.com/mediapipe.TfLiteInferenceCalculatorOptions] {
++      model_path: "face_detection_front.tflite"
++    }
++  }
++}
++
++# Generates a single side packet containing a vector of SSD anchors based on
++# the specification in the options.
++node {
++  calculator: "SsdAnchorsCalculator"
++  output_side_packet: "anchors"
++  node_options: {
++    [type.googleapis.com/mediapipe.SsdAnchorsCalculatorOptions] {
++      num_layers: 4
++      min_scale: 0.1484375
++      max_scale: 0.75
++      input_size_height: 128
++      input_size_width: 128
++      anchor_offset_x: 0.5
++      anchor_offset_y: 0.5
++      strides: 8
++      strides: 16
++      strides: 16
++      strides: 16
++      aspect_ratios: 1.0
++      fixed_anchor_size: true
++    }
++  }
++}
++
++# Decodes the detection tensors generated by the TensorFlow Lite model, based on
++# the SSD anchors and the specification in the options, into a vector of
++# detections. Each detection describes a detected object.
++node {
++  calculator: "TfLiteTensorsToDetectionsCalculator"
++  input_stream: "TENSORS:detection_tensors"
++  input_side_packet: "ANCHORS:anchors"
++  output_stream: "DETECTIONS:detections"
++  node_options: {
++    [type.googleapis.com/mediapipe.TfLiteTensorsToDetectionsCalculatorOptions] {
++      num_classes: 1
++      num_boxes: 896
++      num_coords: 16
++      box_coord_offset: 0
++      keypoint_coord_offset: 4
++      num_keypoints: 6
++      num_values_per_keypoint: 2
++      sigmoid_score: true
++      score_clipping_thresh: 100.0
++      reverse_output_order: true
++      x_scale: 128.0
++      y_scale: 128.0
++      h_scale: 128.0
++      w_scale: 128.0
++      min_score_thresh: 0.75
++    }
++  }
++}
++
++# Performs non-max suppression to remove excessive detections.
++node {
++  calculator: "NonMaxSuppressionCalculator"
++  input_stream: "detections"
++  output_stream: "filtered_detections"
++  node_options: {
++    [type.googleapis.com/mediapipe.NonMaxSuppressionCalculatorOptions] {
++      min_suppression_threshold: 0.3
++      overlap_type: INTERSECTION_OVER_UNION
++      algorithm: WEIGHTED
++      return_empty_detections: true
++    }
++  }
++}
++
++# Maps detection label IDs to the corresponding label text ("Face"). The label
++# map is provided in the label_map_path option.
++node {
++  calculator: "DetectionLabelIdToTextCalculator"
++  input_stream: "filtered_detections"
++  output_stream: "labeled_detections"
++  node_options: {
++    [type.googleapis.com/mediapipe.DetectionLabelIdToTextCalculatorOptions] {
++      label_map_path: "face_detection_front_labelmap.txt"
++    }
++  }
+ }
++
++# Adjusts detection locations (already normalized to [0.f, 1.f]) on the
++# letterboxed image (after image transformation with the FIT scale mode) to the
++# corresponding locations on the same image with the letterbox removed (the
++# input image to the graph before image transformation).
++node {
++  calculator: "DetectionLetterboxRemovalCalculator"
++  input_stream: "DETECTIONS:labeled_detections"
++  input_stream: "LETTERBOX_PADDING:letterbox_padding"
++  output_stream: "DETECTIONS:output_detections"
++}
++
++# # Converts the detections to drawing primitives for annotation overlay.
++# node {
++#   calculator: "DetectionsToRenderDataCalculator"
++#   input_stream: "DETECTIONS:output_detections"
++#   output_stream: "RENDER_DATA:face_render_data"
++#   node_options: {
++#     [type.googleapis.com/mediapipe.DetectionsToRenderDataCalculatorOptions] {
++#       thickness: 10.0
++#       color { r: 255 g: 0 b: 0 }
++#     }
++#   }
++# }
++
++
++# Extracts image size from the input images.
++node {
++  calculator: "ImagePropertiesCalculator"
++  input_stream: "IMAGE_GPU:input_video"
++  output_stream: "SIZE:face_image_size"
++}
++
++# Converts results of face detection into a rectangle (normalized by image size)
++# that encloses the palm and is rotated such that the line connecting center of
++# the nose and eyebrow of the middle finger is aligned with the Y-axis of the
++# rectangle.
++node {
++  calculator: "DetectionsToRectsCalculator"
++  input_stream: "DETECTIONS:output_detections"
++  input_stream: "IMAGE_SIZE:face_image_size"
++  output_stream: "NORM_RECT:face_rect_unnorm"
++  output_stream: "FACE_REC_TO_FLOAT:face_float_vector"
++  node_options: {
++    [type.googleapis.com/mediapipe.DetectionsToRectsCalculatorOptions] {
++      rotation_vector_start_keypoint_index: 1  # Center of wrist.
++      rotation_vector_end_keypoint_index: 2  # MCP of middle finger.
++      rotation_vector_target_angle_degrees: 45
++      output_zero_rect_for_empty_detections: true
++    }
++  }
++}
++
++node {
++  calculator: "RectToRenderDataCalculator"
++  input_stream: "NORM_RECT:face_rect_unnorm"
++  output_stream: "RENDER_DATA:face_render_data"
++  options: {
++    [mediapipe.RectToRenderDataCalculatorOptions.ext] {
++      filled: false
++      color { r: 255 g: 0 b: 0 }
++      thickness: 4.0
++    }
++  }
++}
++
++
++#######################face ends here#############################
++
++
++
++# Caches a hand-presence decision fed back from HandLandmarkSubgraph, and upon
++# the arrival of the next input image sends out the cached decision with the
++# timestamp replaced by that of the input image, essentially generating a packet
++# that carries the previous hand-presence decision. Note that upon the arrival
++# of the very first input image, an empty packet is sent out to jump start the
++# feedback loop.
++node {
++  calculator: "PreviousLoopbackCalculator"
++  input_stream: "MAIN:throttled_input_video"
++  input_stream: "LOOP:hand_presence"
++  input_stream_info: {
++    tag_index: "LOOP"
++    back_edge: true
++  }
++  output_stream: "PREV_LOOP:prev_hand_presence"
++}
++
++# Drops the incoming image if HandLandmarkSubgraph was able to identify hand
++# presence in the previous image. Otherwise, passes the incoming image through
++# to trigger a new round of hand detection in HandDetectionSubgraph.
++node {
++  calculator: "GateCalculator"
++  input_stream: "throttled_input_video"
++  input_stream: "DISALLOW:prev_hand_presence"
++  output_stream: "hand_detection_input_video"
++
++  node_options: {
++    [type.googleapis.com/mediapipe.GateCalculatorOptions] {
++      empty_packets_as_allow: true
++    }
++  }
++}
++
++# Subgraph that detections hands (see hand_detection_gpu.pbtxt).
++node {
++  calculator: "HandDetectionSubgraph"
++  input_stream: "hand_detection_input_video"
++  output_stream: "DETECTIONS:palm_detections"
++  output_stream: "NORM_RECT:hand_rect_from_palm_detections"
++}
++
++# Subgraph that localizes hand landmarks (see hand_landmark_gpu.pbtxt).
++node {
++  calculator: "HandLandmarkSubgraph"
++  input_stream: "IMAGE:throttled_input_video"
++  input_stream: "NORM_RECT:hand_rect"
++  output_stream: "LANDMARKS:hand_landmarks"
++  output_stream: "NORM_RECT:hand_rect_from_landmarks"
++  output_stream: "PRESENCE:hand_presence"
++}
++
++# Caches a hand rectangle fed back from HandLandmarkSubgraph, and upon the
++# arrival of the next input image sends out the cached rectangle with the
++# timestamp replaced by that of the input image, essentially generating a packet
++# that carries the previous hand rectangle. Note that upon the arrival of the
++# very first input image, an empty packet is sent out to jump start the
++# feedback loop.
++node {
++  calculator: "PreviousLoopbackCalculator"
++  input_stream: "MAIN:throttled_input_video"
++  input_stream: "LOOP:hand_rect_from_landmarks"
++  input_stream_info: {
++    tag_index: "LOOP"
++    back_edge: true
++  }
++  output_stream: "PREV_LOOP:prev_hand_rect_from_landmarks"
++}
++
++# Merges a stream of hand rectangles generated by HandDetectionSubgraph and that
++# generated by HandLandmarkSubgraph into a single output stream by selecting
++# between one of the two streams. The former is selected if the incoming packet
++# is not empty, i.e., hand detection is performed on the current image by
++# HandDetectionSubgraph (because HandLandmarkSubgraph could not identify hand
++# presence in the previous image). Otherwise, the latter is selected, which is
++# never empty because HandLandmarkSubgraphs processes all images (that went
++# through FlowLimiterCaculator).
++node {
++  calculator: "MergeCalculator"
++  input_stream: "hand_rect_from_palm_detections"
++  input_stream: "prev_hand_rect_from_landmarks"
++  output_stream: "hand_rect"
++}
++
++node {
++  calculator: "DetectionsToRenderDataCalculator"
++  input_stream: "DETECTIONS:palm_detections"
++  output_stream: "RENDER_DATA:detection_render_data"
++  node_options: {
++    [type.googleapis.com/mediapipe.DetectionsToRenderDataCalculatorOptions] {
++      thickness: 4.0
++      color { r: 0 g: 255 b: 0 }
++    }
++  }
++}
++
++# Converts landmarks to drawing primitives for annotation overlay.
++node {
++  calculator: "LandmarksToRenderDataCalculator"
++  input_stream: "NORM_LANDMARKS:hand_landmarks"
++  output_stream: "RENDER_DATA:landmark_render_data"    
++  output_stream: "HAND_LANDMARKS_FLOAT:landmark_float_vector"
++  node_options: {
++    [type.googleapis.com/mediapipe.LandmarksToRenderDataCalculatorOptions] {
++      landmark_connections: 0
++      landmark_connections: 1
++      landmark_connections: 1
++      landmark_connections: 2
++      landmark_connections: 2
++      landmark_connections: 3
++      landmark_connections: 3
++      landmark_connections: 4
++      landmark_connections: 0
++      landmark_connections: 5
++      landmark_connections: 5
++      landmark_connections: 6
++      landmark_connections: 6
++      landmark_connections: 7
++      landmark_connections: 7
++      landmark_connections: 8
++      landmark_connections: 5
++      landmark_connections: 9
++      landmark_connections: 9
++      landmark_connections: 10
++      landmark_connections: 10
++      landmark_connections: 11
++      landmark_connections: 11
++      landmark_connections: 12
++      landmark_connections: 9
++      landmark_connections: 13
++      landmark_connections: 13
++      landmark_connections: 14
++      landmark_connections: 14
++      landmark_connections: 15
++      landmark_connections: 15
++      landmark_connections: 16
++      landmark_connections: 13
++      landmark_connections: 17
++      landmark_connections: 0
++      landmark_connections: 17
++      landmark_connections: 17
++      landmark_connections: 18
++      landmark_connections: 18
++      landmark_connections: 19
++      landmark_connections: 19
++      landmark_connections: 20
++      landmark_color { r: 255 g: 0 b: 0 }
++      connection_color { r: 0 g: 255 b: 0 }
++      thickness: 4.0
++    }
++  }
++}
++
++# Converts normalized rects to drawing primitives for annotation overlay.
++node {
++  calculator: "RectToRenderDataCalculator"
++  input_stream: "NORM_RECT:hand_rect"
++  output_stream: "RENDER_DATA:rect_render_data"
++  node_options: {
++    [type.googleapis.com/mediapipe.RectToRenderDataCalculatorOptions] {
++      filled: false
++      color { r: 255 g: 0 b: 0 }
++      thickness: 4.0
++    }
++  }
++}
++
++# # Converts normalized detection data to float vectors
++# node {
++#   calculator: "DetectionsToFloatVectorCalculator"
++#   input_stream: "NORM_RECT:hand_rect"
++#   input_stream: "NORM_LANDMARKS:hand_landmarks"
++#   input_stream: "NORM_RECT:face_rect_unnorm"
++    
++#   output_stream: "REC_TO_FLOAT:float_vector1"
++#   output_stream: "REC_TO_FLOAT:float_vector2"
++#   output_stream: "REC_TO_FLOAT:float_vector3"
++# }
++
++
++# Draws annotations and overlays them on top of the input images.
++node {
++  calculator: "AnnotationOverlayCalculator"
++  input_stream: "INPUT_FRAME_GPU:throttled_input_video"
++  input_stream: "detection_render_data"
++  input_stream: "landmark_render_data"
++  input_stream: "rect_render_data"
++  input_stream: "face_render_data"
++  output_stream: "OUTPUT_FRAME_GPU:output_video"
++}
+\ No newline at end of file
+diff --git a/mediapipe/graphs/face_detection/BUILD b/mediapipe/graphs/face_detection/BUILD
+index ccc9995..7d4850e 100644
+--- a/mediapipe/graphs/face_detection/BUILD
++++ b/mediapipe/graphs/face_detection/BUILD
+@@ -28,7 +28,15 @@ cc_library(
+         "//mediapipe/calculators/util:annotation_overlay_calculator",
+         "//mediapipe/calculators/util:detection_label_id_to_text_calculator",
+         "//mediapipe/calculators/util:detection_letterbox_removal_calculator",
++        # custom calc
++        "//mediapipe/calculators/util:detection_to_float_calculator",
+         "//mediapipe/calculators/util:detections_to_render_data_calculator",
++        # face rectangle calc
++        "//mediapipe/calculators/util:detections_to_rects_calculator",
++        "//mediapipe/calculators/image:image_properties_calculator",
++        "//mediapipe/calculators/util:rect_to_render_data_calculator",
++        "//mediapipe/calculators/util:rect_transformation_calculator",
++        
+         "//mediapipe/calculators/util:non_max_suppression_calculator",
+         "//mediapipe/gpu:gpu_buffer_to_image_frame_calculator",
+         "//mediapipe/gpu:image_frame_to_gpu_buffer_calculator",
+diff --git a/mediapipe/graphs/face_detection/face_detection_mobile_gpu.pbtxt b/mediapipe/graphs/face_detection/face_detection_mobile_gpu.pbtxt
+index 2fb85bc..dd05dfd 100644
+--- a/mediapipe/graphs/face_detection/face_detection_mobile_gpu.pbtxt
++++ b/mediapipe/graphs/face_detection/face_detection_mobile_gpu.pbtxt
+@@ -162,6 +162,84 @@ node {
+   output_stream: "DETECTIONS:output_detections"
+ }
+ 
++########################################################################
++
++# Extracts image size from the input images.
++node {
++  calculator: "ImagePropertiesCalculator"
++  input_stream: "IMAGE_GPU:input_video"
++  output_stream: "SIZE:image_size"
++}
++
++# Converts results of palm detection into a rectangle (normalized by image size)
++# that encloses the palm and is rotated such that the line connecting center of
++# the wrist and MCP of the middle finger is aligned with the Y-axis of the
++# rectangle.
++node {
++  calculator: "DetectionsToRectsCalculator"
++  input_stream: "DETECTIONS:output_detections"
++  input_stream: "IMAGE_SIZE:image_size"
++  output_stream: "NORM_RECT:face_rect"
++  node_options: {
++    [type.googleapis.com/mediapipe.DetectionsToRectsCalculatorOptions] {
++      rotation_vector_start_keypoint_index: 1  # Center of wrist.
++      rotation_vector_end_keypoint_index: 2  # MCP of middle finger.
++      rotation_vector_target_angle_degrees: 45
++      output_zero_rect_for_empty_detections: true
++    }
++  }
++}
++
++# Expands the hand rectangle so that in the next video frame it's likely to
++# still contain the hand even with some motion.
++node {
++  calculator: "RectTransformationCalculator"
++  input_stream: "NORM_RECT:face_rect"
++  input_stream: "IMAGE_SIZE:image_size"
++  output_stream: "NORM_RECT:face_rect_norm"
++  node_options: {
++    [type.googleapis.com/mediapipe.RectTransformationCalculatorOptions] {
++      scale_x: 1.4
++      scale_y: 1.8
++      shift_y: 0.3
++      square_long: true
++    }
++  }
++}
++
++
++node {
++  calculator: "RectToRenderDataCalculator"
++  input_stream: "NORM_RECT:face_rect_norm"
++  output_stream: "RENDER_DATA:rect_render_data"
++  options: {
++    [mediapipe.RectToRenderDataCalculatorOptions.ext] {
++      filled: false
++      color { r: 255 g: 0 b: 0 }
++      thickness: 4.0
++    }
++  }
++}
++
++
++# Adjusts detection locations (already normalized to [0.f, 1.f]) on the
++# letterboxed image (after image transformation with the FIT scale mode) to the
++# corresponding locations on the same image with the letterbox removed (the
++# input image to the graph before image transformation).
++node {
++  calculator: "DetectionToFloatCalculator"
++  input_stream: "DETECTIONS:labeled_detections"
++  input_stream: "LETTERBOX_PADDING:letterbox_padding"
++  output_stream: "DETECTIONS:output_detections_unused"
++}
++
++
++
++#######################################################################
++
++
++
++
+ # Converts the detections to drawing primitives for annotation overlay.
+ node {
+   calculator: "DetectionsToRenderDataCalculator"
+@@ -179,6 +257,6 @@ node {
+ node {
+   calculator: "AnnotationOverlayCalculator"
+   input_stream: "INPUT_FRAME_GPU:throttled_input_video"
+-  input_stream: "render_data"
++  input_stream: "rect_render_data"
+   output_stream: "OUTPUT_FRAME_GPU:output_video"
+ }
+diff --git a/mediapipe/graphs/hand_tracking/BUILD b/mediapipe/graphs/hand_tracking/BUILD
+index 09a8e4d..609e94c 100644
+--- a/mediapipe/graphs/hand_tracking/BUILD
++++ b/mediapipe/graphs/hand_tracking/BUILD
+@@ -32,9 +32,9 @@ cc_library(
+         "//mediapipe/calculators/core:previous_loopback_calculator",
+         "//mediapipe/calculators/video:opencv_video_decoder_calculator",
+         "//mediapipe/calculators/video:opencv_video_encoder_calculator",
++        "//mediapipe/calculators/util:landmarks_to_render_data_calculator",
+         "//mediapipe/graphs/hand_tracking/subgraphs:hand_detection_cpu",
+         "//mediapipe/graphs/hand_tracking/subgraphs:hand_landmark_cpu",
+-        "//mediapipe/graphs/hand_tracking/subgraphs:renderer_cpu",
+     ],
+ )
+ 
+@@ -47,7 +47,6 @@ cc_library(
+         "//mediapipe/calculators/core:previous_loopback_calculator",
+         "//mediapipe/graphs/hand_tracking/subgraphs:hand_detection_gpu",
+         "//mediapipe/graphs/hand_tracking/subgraphs:hand_landmark_gpu",
+-        "//mediapipe/graphs/hand_tracking/subgraphs:renderer_gpu",
+     ],
+ )
+ 
+diff --git a/mediapipe/graphs/hand_tracking/subgraphs/hand_detection_gpu.pbtxt b/mediapipe/graphs/hand_tracking/subgraphs/hand_detection_gpu.pbtxt
+index 8332860..642a5ca 100644
+--- a/mediapipe/graphs/hand_tracking/subgraphs/hand_detection_gpu.pbtxt
++++ b/mediapipe/graphs/hand_tracking/subgraphs/hand_detection_gpu.pbtxt
+@@ -101,7 +101,7 @@ node {
+       keypoint_coord_offset: 4
+       num_keypoints: 7
+       num_values_per_keypoint: 2
+-      sigmoid_score: true
++      sigmoid_score: false
+       score_clipping_thresh: 100.0
+       reverse_output_order: true
+ 
+@@ -109,7 +109,7 @@ node {
+       y_scale: 256.0
+       h_scale: 256.0
+       w_scale: 256.0
+-      min_score_thresh: 0.7
++      min_score_thresh: 0.95
+     }
+   }
+ }
+diff --git a/mediapipe/graphs/hand_tracking/subgraphs/hand_landmark_gpu.pbtxt b/mediapipe/graphs/hand_tracking/subgraphs/hand_landmark_gpu.pbtxt
+index 283ce45..771d85d 100644
+--- a/mediapipe/graphs/hand_tracking/subgraphs/hand_landmark_gpu.pbtxt
++++ b/mediapipe/graphs/hand_tracking/subgraphs/hand_landmark_gpu.pbtxt
+@@ -91,7 +91,7 @@ node {
+   output_stream: "FLAG:hand_presence"
+   node_options: {
+     [type.googleapis.com/mediapipe.ThresholdingCalculatorOptions] {
+-      threshold: 0.1
++      threshold: 0.9
+     }
+   }
+ }
+diff --git a/mediapipe/java/com/google/mediapipe/components/FrameProcessor.java b/mediapipe/java/com/google/mediapipe/components/FrameProcessor.java
+index c63f049..408971c 100644
+--- a/mediapipe/java/com/google/mediapipe/components/FrameProcessor.java
++++ b/mediapipe/java/com/google/mediapipe/components/FrameProcessor.java
+@@ -17,6 +17,9 @@ package com.google.mediapipe.components;
+ import android.content.Context;
+ import android.graphics.Bitmap;
+ import android.util.Log;
++import android.app.Activity;
++import android.widget.Toast;
++
+ import com.google.common.base.Preconditions;
+ import com.google.mediapipe.framework.AndroidAssetUtil;
+ import com.google.mediapipe.framework.AndroidPacketCreator;
+@@ -111,8 +114,37 @@ public class FrameProcessor implements TextureFrameProcessor {
+     } catch (MediaPipeException e) {
+       Log.e(TAG, "Mediapipe error: ", e);
+     }
+-
++    // changes start
++    try{
++        mediapipeGraph.addPacketCallback("face_float_vector ", new PacketCallback() {
++          @Override
++          public void process(Packet packet) {
++          float[] face_rect = PacketGetter.getFloat32Vector(packet);
++              for(float x: face_rect){
++                  Log.e(TAG, "THIS IS THE FACE RECTANGLE" + Float.toString(x));    
++              }
++          }
++        });
++    } catch (MediaPipeException e) {
++        Log.e(TAG, "Mediapipe error: ", e);
++    }
++    try{
++        mediapipeGraph.addPacketCallback("landmark_float_vector", new PacketCallback() {
++          @Override
++          public void process(Packet packet) {
++          float[] hand_rect = PacketGetter.getFloat32Vector(packet);
++              for(float x: hand_rect){
++                  Log.e(TAG, "THIS IS THE HAND LANDMARK " + Float.toString(x));    
++              }
++          }
++        });
++    } catch (MediaPipeException e) {
++        Log.e(TAG, "Mediapipe error: ", e);
++    } 
++    // changes end
++      
+     videoSurfaceOutput = mediapipeGraph.addSurfaceOutput(videoOutputStream);
++
+   }
+ 
+   /**

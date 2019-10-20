@@ -162,6 +162,84 @@ node {
   output_stream: "DETECTIONS:output_detections"
 }
 
+########################################################################
+
+# Extracts image size from the input images.
+node {
+  calculator: "ImagePropertiesCalculator"
+  input_stream: "IMAGE_GPU:input_video"
+  output_stream: "SIZE:image_size"
+}
+
+# Converts results of palm detection into a rectangle (normalized by image size)
+# that encloses the palm and is rotated such that the line connecting center of
+# the wrist and MCP of the middle finger is aligned with the Y-axis of the
+# rectangle.
+node {
+  calculator: "DetectionsToRectsCalculator"
+  input_stream: "DETECTIONS:output_detections"
+  input_stream: "IMAGE_SIZE:image_size"
+  output_stream: "NORM_RECT:face_rect"
+  node_options: {
+    [type.googleapis.com/mediapipe.DetectionsToRectsCalculatorOptions] {
+      rotation_vector_start_keypoint_index: 1  # Center of wrist.
+      rotation_vector_end_keypoint_index: 2  # MCP of middle finger.
+      rotation_vector_target_angle_degrees: 45
+      output_zero_rect_for_empty_detections: true
+    }
+  }
+}
+
+# Expands the hand rectangle so that in the next video frame it's likely to
+# still contain the hand even with some motion.
+node {
+  calculator: "RectTransformationCalculator"
+  input_stream: "NORM_RECT:face_rect"
+  input_stream: "IMAGE_SIZE:image_size"
+  output_stream: "NORM_RECT:face_rect_norm"
+  node_options: {
+    [type.googleapis.com/mediapipe.RectTransformationCalculatorOptions] {
+      scale_x: 1.4
+      scale_y: 1.8
+      shift_y: 0.3
+      square_long: true
+    }
+  }
+}
+
+
+node {
+  calculator: "RectToRenderDataCalculator"
+  input_stream: "NORM_RECT:face_rect_norm"
+  output_stream: "RENDER_DATA:rect_render_data"
+  options: {
+    [mediapipe.RectToRenderDataCalculatorOptions.ext] {
+      filled: false
+      color { r: 255 g: 0 b: 0 }
+      thickness: 4.0
+    }
+  }
+}
+
+
+# Adjusts detection locations (already normalized to [0.f, 1.f]) on the
+# letterboxed image (after image transformation with the FIT scale mode) to the
+# corresponding locations on the same image with the letterbox removed (the
+# input image to the graph before image transformation).
+node {
+  calculator: "DetectionToFloatCalculator"
+  input_stream: "DETECTIONS:labeled_detections"
+  input_stream: "LETTERBOX_PADDING:letterbox_padding"
+  output_stream: "DETECTIONS:output_detections_unused"
+}
+
+
+
+#######################################################################
+
+
+
+
 # Converts the detections to drawing primitives for annotation overlay.
 node {
   calculator: "DetectionsToRenderDataCalculator"
@@ -179,6 +257,6 @@ node {
 node {
   calculator: "AnnotationOverlayCalculator"
   input_stream: "INPUT_FRAME_GPU:throttled_input_video"
-  input_stream: "render_data"
+  input_stream: "rect_render_data"
   output_stream: "OUTPUT_FRAME_GPU:output_video"
 }

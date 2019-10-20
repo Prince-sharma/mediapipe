@@ -17,6 +17,9 @@ package com.google.mediapipe.components;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.util.Log;
+import android.app.Activity;
+import android.widget.Toast;
+
 import com.google.common.base.Preconditions;
 import com.google.mediapipe.framework.AndroidAssetUtil;
 import com.google.mediapipe.framework.AndroidPacketCreator;
@@ -53,6 +56,9 @@ public class FrameProcessor implements TextureFrameProcessor {
   private SurfaceOutput videoSurfaceOutput;
   private final AtomicBoolean started = new AtomicBoolean(false);
   private boolean hybridPath = false;
+  public  float[] hand_rect_landmark;
+  public float[] face_rect;
+
 
   /**
    * Constructor.
@@ -111,8 +117,37 @@ public class FrameProcessor implements TextureFrameProcessor {
     } catch (MediaPipeException e) {
       Log.e(TAG, "Mediapipe error: ", e);
     }
-
+    // changes start
+    try{
+        mediapipeGraph.addPacketCallback("face_float_vector", new PacketCallback() {
+          @Override
+          public void process(Packet packet) {
+          face_rect = PacketGetter.getFloat32Vector(packet);
+              for(float x: face_rect){
+                  Log.e(TAG, "THIS IS THE FACE RECTANGLE" + Float.toString(x));    
+              }
+          }
+        });
+    } catch (MediaPipeException e) {
+        Log.e(TAG, "Mediapipe error: ", e);
+    }
+    try{
+        mediapipeGraph.addPacketCallback("landmark_float_vector", new PacketCallback() {
+          @Override
+          public void process(Packet packet) {
+          hand_rect_landmark= PacketGetter.getFloat32Vector(packet);
+              for(float x: hand_rect_landmark){
+                  Log.e(TAG, "THIS IS THE HAND LANDMARK " + Float.toString(x));    
+              }
+          }
+        });
+    } catch (MediaPipeException e) {
+        Log.e(TAG, "Mediapipe error: ", e);
+    } 
+    // changes end
+      
     videoSurfaceOutput = mediapipeGraph.addSurfaceOutput(videoOutputStream);
+
   }
 
   /**
@@ -300,4 +335,8 @@ public class FrameProcessor implements TextureFrameProcessor {
   private void startGraph() {
     mediapipeGraph.startRunningGraph();
   }
+
+  public  float[] get_hand_rect_landmark( ){return hand_rect_landmark;}
+  public float[] get_face_rect(){return face_rect;}
+
 }
